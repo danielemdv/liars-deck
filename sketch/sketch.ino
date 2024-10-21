@@ -1,28 +1,177 @@
 #include "pitches.h"
 
+
+
+// START ====== DATA TYPES ====================
+
+struct Player {
+public:
+  bool isAlive;
+  int* chamber;
+  int clickIndex;
+  int ledPin;
+
+  // Default constructor
+  Player() : isAlive(false), chamber(nullptr), clickIndex(-1), ledPin(-1) {
+      // Optionally, you can initialize chamber to null or skip allocation here
+  }
+
+// custom constructor that randomizes chamber.
+  Player(int ledPinIn){
+
+    isAlive = true;
+    clickIndex = 0;
+    ledPin = ledPinIn;
+
+    chamber = new int[6];
+
+    for (int i = 0; i < 6; i++) {
+      chamber[i] = 0;
+    }
+    chamber[random(0,6)] = 1;
+  }
+
+  // Pretty prints the player's info and full chamber status
+  void printInfo() {
+    Serial.print("Player:: ");
+    Serial.print(" ledPin: ");
+    Serial.print(ledPin);
+    Serial.print("; isAlive: ");
+    Serial.print(isAlive);
+    Serial.print("; clickIndex: ");
+    Serial.print(clickIndex);
+    Serial.print("; chamber: [");
+
+    for (int i = 0; i < 6; i++) {
+      Serial.print(chamber[i]);
+      Serial.print(i != 5 ? "," : "");
+    }
+
+    Serial.println("]");
+  }
+
+  // Copy assignment operator
+  Player& operator=(const Player& other) {
+    // Skip copying if the source is invalid (default constructed)
+    if (other.clickIndex == -1) {
+        Serial.println("Skipping assignment from default-constructed Player.");
+        return *this;
+    }
+
+    // Free existing memory if already allocated
+    if (chamber != nullptr) {
+        delete[] chamber;
+    }
+
+    // Deep copy the values
+    isAlive = other.isAlive;
+    ledPin = other.ledPin;
+    clickIndex = other.clickIndex;
+
+    chamber = new int[6];
+    for (int i = 0; i < 6; i++) {
+        chamber[i] = other.chamber[i];
+    }
+    return *this;
+  }
+
+  // Destructor to clean up dynamically allocated memory
+  ~Player() {
+      if (chamber != nullptr) {
+          delete[] chamber;
+      }
+  }
+};
+
+// Struct to map LEDs with their state and the player they represent.
+struct PlayerLed {
+  int state;
+  int pin;
+  int playerIndex;
+
+  // Default constructor
+  PlayerLed() : state(-1), pin(-1), playerIndex(-1) { }
+  
+  // Custom constructor
+  PlayerLed(int pinIn, int playerIndexIn) {
+    state = HIGH;
+    pin = pinIn;
+    playerIndex = playerIndexIn;
+  }
+
+  void printInfo() {
+    Serial.print("LED:: ");
+    Serial.print(" State: ");
+    Serial.print(state == HIGH ? "HIGH" : "LOW");
+    Serial.print("; playerIndex: ");
+    Serial.print(playerIndex);
+    Serial.print("; pin: ");
+    Serial.println(pin);
+  }
+
+  // I don't believe this is needed given that this struct only has primitive values...
+  // however, I'm scared of cpp now and have trust issues.
+  PlayerLed& operator=(const PlayerLed& other) {
+    if (other.state == -1) {
+      Serial.println("Skipping assignment from default-constructed PlayerLed.");
+      return *this;
+    }
+    state = other.state;
+    pin = other.pin;
+    playerIndex = other.playerIndex;
+
+    return *this;
+  }
+
+};
+
+
+
+// END  ======  DATA TYPES ====================
+
+
+// START ====== GLOBAL STUFF ====================
+
+#define PLAYER_COUNT 4
+byte startingPlayer = -1;
+Player* players = new Player[PLAYER_COUNT];
+
+// LEDs
+const int playerLedPins[] = {2,3,4,5}; // Need to add more pins if more players wanted.
+PlayerLed* playerLeds = new PlayerLed[PLAYER_COUNT];
+const int ledBlinkDuration = 300;
+const int ledIntervalDuration = 500;
+
+// Buzzer
+const int buzzerPin = 6;
+
+//  Button
+const int buttonAPin = 7;
+const int buttonBPin = 8;
+const int buttonInterval = 300; // number of millisecs between button readings
+
+// Potentiometer
+const int knobPin = A0;
+
+
+// Time
+unsigned long currentMillis = 0;    // stores the value of millis() in each iteration of loop()
+
+// END ====== GLOBAL STUFF ====================
+
+
 // Player state vars
 const int playerCount = 4; // Total players playing
 int activePlayerCount = 4; // Players that are alive
 byte activePlayers = 0b1111; // Byte with lower 4 bits representing which players are still alive
-byte playersTurn = 0; // not used, should delete
-int playerLed[] = {2,3,4,5};
 int playerChambers[playerCount][6]; // Represent each player's chamber
 int currentHighlightedPlayer = -1; // State for player selection
 int playerChambersIndexes[playerCount] = {};
 
-// Buzzer
-int buzzerPin = 6;
-
-//  Button
-int greenButtonPin = 7;
-int redButtonPin = 8;
-
 // Potentiometer
-int knobPin = A0;
 int previousKnobRead = 0;
 boolean knobReadSet = false;
 int knobSensitivity = 50;
-
 
 // Selection input type
 enum SelectionMode: int {
@@ -30,7 +179,7 @@ enum SelectionMode: int {
   Button
 };
 
-SelectionMode currentSelectionMode = Knob; // Change this depending on secondary input type
+SelectionMode currentSelectionMode = Button; // Change this depending on secondary input type
 
 // GameState
 enum GameState: int {
@@ -54,15 +203,39 @@ void setup() {
   Serial.println("Setting up game for 4 players");
   // Set up player LED pins
   for (int i = 0; i < playerCount; i++) {
-    pinMode(playerLed[i], OUTPUT);
+    pinMode(playerLedPins[i], OUTPUT);
   }
   pinMode(buzzerPin, OUTPUT);
-  pinMode(greenButtonPin, INPUT_PULLUP);
-  pinMode(redButtonPin, INPUT_PULLUP);
+  pinMode(buttonAPin, INPUT_PULLUP);
+  pinMode(buttonBPin, INPUT_PULLUP);
   pinMode(knobPin, INPUT);
+
+  newSetup();
+}
+
+void newSetup() {
+  // Serial.begin(9600);
+  // randomSeed(analogRead(A5));
+
+  // Pin setups
+  Serial.println("(NEW) Setting up game for 4 players");
+
+  // Create the players.
+  for (int i = 0; i < PLAYER_COUNT; i++) {
+    players[i] = Player(playerLedPins[i]);
+    players[i].printInfo();
+    playerLeds[i] = PlayerLed(playerLedPins[i], i);
+    playerLeds[i].printInfo();
+  }
+
+  // currentGameState = PlayerIndication; // go straight to indication
 }
 
 void loop() {
+
+  currentMillis = millis();   // capture the latest value of millis()
+
+  // Daniel TODO: Read all inputs here.
 
   switch (currentGameState) {
     case FirstSetup:
@@ -97,6 +270,15 @@ void loop() {
   }
 
   delay(50);
+}
+
+void readAllInputs() {
+  // Read button A
+
+
+  // Read button B
+
+
 }
 
 void loadPlayerChambers(int playerChambers[][6], int players) {
@@ -139,7 +321,7 @@ void playSound() {
 void highlightPlayerAnimation(int player, int seconds) {
   // Turn all LEDs off.
   for (int i = 0; i < 4; i++) {
-    digitalWrite(playerLed[i], LOW);
+    digitalWrite(playerLedPins[i], LOW);
   }
 
   int repetitions = 5 * seconds;
@@ -147,9 +329,9 @@ void highlightPlayerAnimation(int player, int seconds) {
   // Turn player LED on and Off for a period of time. (~ 3 seconds)
   playSound();
   for (int i = 0; i < repetitions; i++) {
-    digitalWrite(playerLed[player], HIGH);
+    digitalWrite(playerLedPins[player], HIGH);
     delay(100);
-    digitalWrite(playerLed[player], LOW);
+    digitalWrite(playerLedPins[player], LOW);
     delay(100);
   }
 }
@@ -169,9 +351,9 @@ void doFirstSetup(int playerCount, byte activePlayers, int playerChambers[][6]) 
 void doPlayerIndication() {
   Serial.println("Performing Player Indication");
     // Select starting player.
-  playersTurn = random(0,playerCount);
-  Serial.println("Starting player is Player " + String(playersTurn));
-  highlightPlayerAnimation(playersTurn, 3);
+  startingPlayer = random(0,playerCount);
+  Serial.println("Starting player is Player " + String(startingPlayer));
+  highlightPlayerAnimation(startingPlayer, 3);
   Serial.println("Finish Player Indication");
 }
 
@@ -179,13 +361,13 @@ void doGameRunning(int playerCount, byte activePlayers) {
   Serial.println("Performing GameRunning");
   // Turn on all LEDs for active players.
   for (int i = 0; i < playerCount; i++) {
-    digitalWrite(playerLed[i], LOW); // turn off first
+    digitalWrite(playerLedPins[i], LOW); // turn off first
     if (checkIfPlayerActive(i, activePlayers)) {
-      digitalWrite(playerLed[i], HIGH); // turn on active player
+      digitalWrite(playerLedPins[i], HIGH); // turn on active player
     }
   }
 
-  readButtonPress(redButtonPin); // will stay here until button is pressed.
+  readButtonPress(buttonBPin); // will stay here until button is pressed.
 
   Serial.println("Finish GameRunning");
 }
@@ -214,13 +396,13 @@ void doPlayerSelection() {
       }
       Serial.println(currentHighlightedPlayer);
     } else {
-      if (digitalRead(redButtonPin) == LOW) {
+      if (digitalRead(buttonBPin) == LOW) {
         doPlayerSelection_updateHighlightedPlayer(1); // Select clockwise active player
         Serial.println("Player selection updated via button");
       }
     }
 
-    if (digitalRead(greenButtonPin) == LOW) {
+    if (digitalRead(buttonAPin) == LOW) {
       break;
     }
     // Read shoot button press, call logic and then exit loop if pressed
@@ -270,7 +452,7 @@ void doPlayerSelection_selectAPlayer() {
 }
 
 boolean doPlayerSelection_flashHighlightedPlayer(boolean highlightFlashOn) {
-  digitalWrite(playerLed[currentHighlightedPlayer], highlightFlashOn ? HIGH : LOW);
+  digitalWrite(playerLedPins[currentHighlightedPlayer], highlightFlashOn ? HIGH : LOW);
   return !highlightFlashOn;
 }
 
@@ -281,7 +463,7 @@ void doPlayerSelection_updateHighlightedPlayer(int direction) {
   } else {
     currentHighlightedPlayer = getNextActivePlayerAntiClockwise();
   }
-  // digitalWrite(playerLed[currentHighlightedPlayer], HIGH);
+  // digitalWrite(playerLedPins[currentHighlightedPlayer], HIGH);
 }
 
 int getNextActivePlayerClockwise() {
@@ -312,13 +494,13 @@ int getNextActivePlayerAntiClockwise() {
 
 void turnPlayerLedsOff() {
   for (int i = 0; i < playerCount; i++) {
-    digitalWrite(playerLed[i], LOW);
+    digitalWrite(playerLedPins[i], LOW);
   }
 }
 
 void turnPlayerLedsOn() {
   for (int i = 0; i < playerCount; i++) {
-    digitalWrite(playerLed[i], HIGH);
+    digitalWrite(playerLedPins[i], HIGH);
   }
 }
 
