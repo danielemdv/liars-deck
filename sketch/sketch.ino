@@ -17,7 +17,7 @@ public:
       // Optionally, you can initialize chamber to null or skip allocation here
   }
 
-// custom constructor that randomizes chamber.
+  // custom constructor that randomizes chamber.
   Player(int ledPinIn){
 
     isAlive = true;
@@ -31,6 +31,16 @@ public:
       chamber[i] = 0;
     }
     chamber[random(0,6)] = 1;
+  }
+
+  bool triggerGun() {
+    if (chamber[clickIndex] == 1) {
+      isAlive = false;
+      return true;
+    } else {
+      clickIndex++;
+      return false;
+    }
   }
 
   // Pretty prints the player's info and full chamber status
@@ -90,18 +100,22 @@ public:
 
 // Struct to map LEDs with their state and the player they represent.
 struct PlayerLed {
+  static const int blinkInterval = 200;
+
   int state;
   int pin;
   int playerIndex;
+  unsigned long prevBlinkMillis;
 
   // Default constructor
-  PlayerLed() : state(-1), pin(-1), playerIndex(-1) { }
+  PlayerLed() : state(-1), pin(-1), playerIndex(-1), prevBlinkMillis(0) { }
   
   // Custom constructor
   PlayerLed(int pinIn, int playerIndexIn) {
     state = HIGH;
     pin = pinIn;
     playerIndex = playerIndexIn;
+    prevBlinkMillis = 0;
   }
 
   void turnOnIfAlive(const Player* players) {
@@ -115,6 +129,62 @@ struct PlayerLed {
   void turnOnIfSelected(const Player* players) {
     if (players[playerIndex].isSelected) {
       digitalWrite(pin, HIGH);
+    } else {
+      digitalWrite(pin, LOW);
+    }
+  }
+
+  void flashIfAlive(const Player* players) {
+    // Uses same value for the duration of off and on state.
+    if (players[playerIndex].isAlive) {
+      const unsigned long currentMillis = millis();
+      if (state == LOW) {
+          // if the Led is off, we must wait for the interval to expire before turning it on
+        if (currentMillis - prevBlinkMillis >= blinkInterval) {
+          // time is up, so change the state to HIGH
+          state = HIGH;
+          digitalWrite(pin, state);
+          // and save the time when we made the change
+          prevBlinkMillis = currentMillis;
+        }
+      } else {  // i.e. if onBoardLedState is HIGH
+        // if the Led is on, we must wait for the duration to expire before turning it off
+        if (currentMillis - prevBlinkMillis >= blinkInterval) {
+          // time is up, so change the state to LOW
+          state = LOW;
+          digitalWrite(pin, state);
+          // and save the time when we made the change
+          prevBlinkMillis = currentMillis;
+        }
+      }
+    } else {
+      digitalWrite(pin, LOW);
+    }
+  }
+
+  void flashIfSelected(const Player* players) {
+    // Uses same value for the duration of off and on state.
+    if (players[playerIndex].isSelected) {
+      const unsigned long currentMillis = millis();
+      if (state == LOW) {
+          // if the Led is off, we must wait for the interval to expire before turning it on
+        if (currentMillis - prevBlinkMillis >= blinkInterval) {
+          // time is up, so change the state to HIGH
+          state = HIGH;
+          digitalWrite(pin, state);
+          // and save the time when we made the change
+          prevBlinkMillis = currentMillis;
+        }
+      } else {  // i.e. if onBoardLedState is HIGH
+        // if the Led is on, we must wait for the duration to expire before turning it off
+        if (currentMillis - prevBlinkMillis >= blinkInterval) {
+          // time is up, so change the state to LOW
+          state = LOW;
+          digitalWrite(pin, state);
+          // and save the time when we made the change
+          prevBlinkMillis = currentMillis;
+        }
+      }
     } else {
       digitalWrite(pin, LOW);
     }
@@ -140,10 +210,10 @@ struct PlayerLed {
     state = other.state;
     pin = other.pin;
     playerIndex = other.playerIndex;
+    prevBlinkMillis = other.prevBlinkMillis;
 
     return *this;
   }
-
 };
 
 struct Button {
@@ -224,17 +294,13 @@ SelectionMode currentSelectionMode = Button; // Change this depending on seconda
 
 // GameState
 enum GameState: int {
-  FirstSetup,
-  PlayerIndication,
   GameRunning,
-  PlayerSelection, // <-
+  PlayerSelection,
   PlayerTrigger,
-  SecondarySetup,
   GameOverWinner
 };
 
-// byte currentGameState = GameState::PlayerIndication;
-GameState currentGameState = FirstSetup;
+GameState currentGameState = GameRunning;
 
 // Specific game state aux variables and functions
 int currentSelectedPlayer = -1; // State for player selection, do not use directly
@@ -266,21 +332,22 @@ void setup() {
     players[i].printInfo();
     playerLeds[i].printInfo();
   }
-
-  // Set the first game state.
-  currentGameState = GameRunning;
 }
 
 void loop() {
-
-  // currentMillis = millis();   // capture the latest value of millis()
 
   // Read inputs
   buttonA.readButton();
   buttonB.readButton();
 
   switch (currentGameState) {
-    case GameRunning:
+    case GameRunning: {
+        // If we've reached the end of the game when only one player is alive, go to GameOverWinner state.
+        if (checkGameEndConditionMet()) {
+          currentGameState = GameOverWinner;
+          Serial.println("Entering State: GameOverWinner");
+        }
+
         // If button A is pressed, move to player selection.
         if (buttonA.wasPressed) {
           currentGameState = PlayerSelection;
@@ -291,8 +358,9 @@ void loop() {
         for (int i = 0; i < PLAYER_COUNT; i++) {
           playerLeds[i].turnOnIfAlive(players);
         }
-      break;
-    case PlayerSelection:
+    }
+    break;
+    case PlayerSelection: {
         // If currentSelectedPlayer has invalid value, select a random live player.
         if (getCurrentSelectedPlayer() == -1 || !players[getCurrentSelectedPlayer()].isAlive) {
           selectRandomLivePlayer();
@@ -315,20 +383,39 @@ void loop() {
           Serial.println("Entering State: PlayerTrigger");
         }
 
+        // Make selected LED blink when we're in this state.
         // Update output leds.
         for (int i = 0; i < PLAYER_COUNT; i++) {
-          playerLeds[i].turnOnIfSelected(players);
+          playerLeds[i].flashIfSelected(players);
         }
+    }
+    break;
+    case PlayerTrigger: {
+        // Perform gun trigger on selected player.
+        const bool didPlayerDie = players[getCurrentSelectedPlayer()].triggerGun();
 
-      break;
-    case PlayerTrigger:
-      break;
-    default:
+        // TODO: Change game state to new states for PlayerSurvived or PlayerDied to perform animations and sounds.
+
+        // For the moment, send game state back to GameRunning
+        currentGameState = GameRunning;
+        Serial.println("Entering State: GameRunning");
+    }
+    break;
+    case GameOverWinner: {
+
+        // TODO: Add winning music!
+
+        // Flash the winning player's LED.
+        for (int i = 0; i < PLAYER_COUNT; i++) {
+          playerLeds[i].flashIfAlive(players);
+        }
+    }
+    break;
+    default: {
         Serial.println("State is defaulting switch block");
-      break;
+    }
+    break;
   }
-
-  // delay(50);
 }
 
 // Must call this function for player selection.
@@ -368,6 +455,17 @@ void selectRandomLivePlayer() {
   int chosenRandomLivePlayer = random(0,livePlayerCount);
   selectPlayer(livePlayerIndices[chosenRandomLivePlayer]);
   return;
+}
+
+bool checkGameEndConditionMet() {
+  int livePlayerCount = 0;
+  for (int i = 0; i < PLAYER_COUNT; i++) {
+    if (players[i].isAlive) {
+      livePlayerCount++;
+    }
+  }
+
+  return livePlayerCount == 1;
 }
 
 void playSound() {
