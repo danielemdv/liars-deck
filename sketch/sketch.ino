@@ -234,6 +234,18 @@ struct Button {
   }
 };
 
+struct Buzzer {
+  int pin;
+  unsigned long previousToneMillis;
+
+  void makeNoise() {
+    tone(pin, NOTE_G6, 200);
+  }
+
+  // TODO: Implement this method so we can play a full melody.
+  // void playMelody() {}
+};
+
 
 
 // END  ======  DATA TYPES ====================
@@ -253,6 +265,7 @@ const int ledIntervalDuration = 500;
 
 // Buzzer
 const int buzzerPin = 6;
+struct Buzzer buzzer = {buzzerPin, 0};
 
 //  Button
 const int buttonAPin = 7;
@@ -332,6 +345,9 @@ void setup() {
     players[i].printInfo();
     playerLeds[i].printInfo();
   }
+
+  // Game start sound!
+  buzzer.makeNoise();
 }
 
 void loop() {
@@ -404,6 +420,7 @@ void loop() {
     case GameOverWinner: {
 
         // TODO: Add winning music!
+        buzzer.makeNoise();
 
         // Flash the winning player's LED.
         for (int i = 0; i < PLAYER_COUNT; i++) {
@@ -466,8 +483,4 @@ bool checkGameEndConditionMet() {
   }
 
   return livePlayerCount == 1;
-}
-
-void playSound() {
-  // tone(buzzerPin, NOTE_G5, 500); // Muting for now...
 }
