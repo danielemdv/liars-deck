@@ -66,6 +66,12 @@ public:
 
   // Copy assignment operator
   Player& operator=(const Player& other) {
+
+    // Skip copy if the source is this same instance
+    if (this == &other) {
+      return *this;
+    }
+
     // Skip copying if the source is invalid (default constructed)
     if (other.clickIndex == -1) {
         Serial.println("Skipping assignment from default-constructed Player.");
@@ -254,29 +260,28 @@ struct Buzzer {
 // START ====== GLOBAL STUFF ====================
 
 #define PLAYER_COUNT 4
-byte startingPlayer = -1;
 Player* players = new Player[PLAYER_COUNT];
 
 // LEDs
 const int playerLedPins[] = {2,3,4,5}; // Need to add more pins if more players wanted.
 PlayerLed* playerLeds = new PlayerLed[PLAYER_COUNT];
-const int ledBlinkDuration = 300;
+static constexpr int ledBlinkDuration = 300;
 const int ledIntervalDuration = 500;
 
 // Buzzer
-const int buzzerPin = 6;
+static constexpr int buzzerPin = 6;
 struct Buzzer buzzer = {buzzerPin, 0};
 
 //  Button
-const int buttonAPin = 7;
-const int buttonBPin = 8;
-const int buttonInterval = 200; // number of millisecs between button readings
+static constexpr int buttonAPin = 7;
+static constexpr int buttonBPin = 8;
+static constexpr int buttonInterval = 200; // number of millisecs between button readings
 
 struct Button buttonA = {buttonAPin, 0, buttonInterval, false};
 struct Button buttonB = {buttonBPin, 0, buttonInterval, false};
 
 // Potentiometer
-const int knobPin = A0;
+static constexpr int knobPin = A0;
 
 
 // Time
@@ -306,14 +311,14 @@ enum SelectionMode: int {
 SelectionMode currentSelectionMode = Button; // Change this depending on secondary input type
 
 // GameState
-enum GameState: int {
+enum class GameState: int {
   GameRunning,
   PlayerSelection,
   PlayerTrigger,
   GameOverWinner
 };
 
-GameState currentGameState = GameRunning;
+GameState currentGameState = GameState::GameRunning;
 
 // Specific game state aux variables and functions
 int currentSelectedPlayer = -1; // State for player selection, do not use directly
@@ -357,16 +362,16 @@ void loop() {
   buttonB.readButton();
 
   switch (currentGameState) {
-    case GameRunning: {
+    case GameState::GameRunning: {
         // If we've reached the end of the game when only one player is alive, go to GameOverWinner state.
         if (checkGameEndConditionMet()) {
-          currentGameState = GameOverWinner;
+          currentGameState = GameState::GameOverWinner;
           Serial.println("Entering State: GameOverWinner");
         }
 
         // If button A is pressed, move to player selection.
         if (buttonA.wasPressed) {
-          currentGameState = PlayerSelection;
+          currentGameState = GameState::PlayerSelection;
           Serial.println("Entering State: PlayerSelection");
         }
 
@@ -376,7 +381,7 @@ void loop() {
         }
     }
     break;
-    case PlayerSelection: {
+    case GameState::PlayerSelection: {
         // If currentSelectedPlayer has invalid value, select a random live player.
         if (getCurrentSelectedPlayer() == -1 || !players[getCurrentSelectedPlayer()].isAlive) {
           selectRandomLivePlayer();
@@ -395,7 +400,7 @@ void loop() {
         }
 
         if (buttonB.wasPressed) {
-          currentGameState = PlayerTrigger;
+          currentGameState = GameState::PlayerTrigger;
           Serial.println("Entering State: PlayerTrigger");
         }
 
@@ -406,18 +411,18 @@ void loop() {
         }
     }
     break;
-    case PlayerTrigger: {
+    case GameState::PlayerTrigger: {
         // Perform gun trigger on selected player.
         const bool didPlayerDie = players[getCurrentSelectedPlayer()].triggerGun();
 
         // TODO: Change game state to new states for PlayerSurvived or PlayerDied to perform animations and sounds.
 
         // For the moment, send game state back to GameRunning
-        currentGameState = GameRunning;
+        currentGameState = GameState::GameRunning;
         Serial.println("Entering State: GameRunning");
     }
     break;
-    case GameOverWinner: {
+    case GameState::GameOverWinner: {
 
         // TODO: Add winning music!
         buzzer.makeNoise();
